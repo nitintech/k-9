@@ -27,8 +27,8 @@ import com.fsck.k9.mail.Address;
 import com.fsck.k9.mail.Flag;
 import com.fsck.k9.mail.Message;
 import com.fsck.k9.mail.MessagingException;
+import com.fsck.k9.mailstore.CryptoResultAnnotation.CryptoError;
 import com.fsck.k9.mailstore.MessageViewInfo;
-import com.fsck.k9.view.MessageHeader;
 import com.fsck.k9.ui.messageview.MessageContainerView.OnRenderingFinishedListener;
 import com.fsck.k9.view.MessageCryptoDisplayStatus;
 import com.fsck.k9.view.MessageHeader;
@@ -36,7 +36,7 @@ import com.fsck.k9.view.ToolableViewAnimator;
 import org.openintents.openpgp.OpenPgpError;
 
 
-public class MessageTopView extends LinearLayout implements ShowPicturesController, OnRenderingFinishedListener {
+public class MessageTopView extends LinearLayout implements ShowPicturesController {
 
     public static final int PROGRESS_MAX = 1000;
     public static final int PROGRESS_MAX_WITH_MARGIN = 950;
@@ -107,25 +107,102 @@ public class MessageTopView extends LinearLayout implements ShowPicturesControll
         containerView.removeAllViews();
     }
 
-    public void setMessage(Account account, MessageViewInfo messageViewInfo)
-            throws MessagingException {
+    public void setMessage(Account account, MessageViewInfo messageViewInfo) throws MessagingException {
         resetView();
 
+        MessageCryptoDisplayStatus displayStatus =
+                MessageCryptoDisplayStatus.fromResultAnnotation(messageViewInfo.cryptoResultAnnotation);
+        mHeaderContainer.setCryptoStatus(displayStatus);
+
+        CryptoError cryptoError = messageViewInfo.cryptoResultAnnotation != null ?
+                messageViewInfo.cryptoResultAnnotation.getErrorType() : null;
+        if (cryptoError == null || cryptoError == CryptoError.OPENPGP_OK) {
+            showMessageContentView(account, messageViewInfo);
+            return;
+        }
+
+        switch (cryptoError) {
+            case SIGNED_BUT_UNSUPPORTED:
+            case OPENPGP_SIGNED_BUT_INCOMPLETE: {
+                showMessageContentView(account, messageViewInfo);
+                return;
+            }
+
+            case OPENPGP_ENCRYPTED_BUT_INCOMPLETE: {
+                showEncryptedButIncompleteView();
+                break;
+            }
+
+            case ENCRYPTED_BUT_UNSUPPORTED: {
+                showMessageCryptoErrorView(messageViewInfo);
+                break;
+            }
+
+            case OPENPGP_API_RETURNED_ERROR: {
+                showMessageCryptoErrorView(messageViewInfo);
+                break;
+            }
+
+            case OPENPGP_UI_CANCELED: {
+                showMessageCryptoCancelledView();
+                break;
+            }
+
+            default: {
+                throw new IllegalStateException("unhandled case");
+            }
+        }
+    }
+
+    private void showEncryptedButIncompleteView() {
+        View view = mInflater.inflate(R.layout.message_content_crypto_incomplete, containerView, false);
+        containerView.addView(view);
+        displayViewOnLoadFinished(false);
+    }
+
+    private void showMessageContentView(Account account, MessageViewInfo messageViewInfo)
+            throws MessagingException {
         ShowPictures showPicturesSetting = account.getShowPictures();
         boolean automaticallyLoadPictures =
                 shouldAutomaticallyLoadPictures(showPicturesSetting, messageViewInfo.message);
 
         MessageContainerView view = (MessageContainerView) mInflater.inflate(R.layout.message_container,
                 containerView, false);
-        view.displayMessageViewContainer(messageViewInfo, this, automaticallyLoadPictures, this, attachmentCallback);
+        containerView.addView(view);
 
-        boolean displayPgpHeader = account.isOpenPgpProviderConfigured();
-        if (displayPgpHeader) {
-            mHeaderContainer.setCryptoStatus(messageViewInfo.cryptoResultAnnotation);
+        view.displayMessageViewContainer(messageViewInfo, new OnRenderingFinishedListener() {
+            @Override
+            public void onLoadFinished() {
+                displayViewOnLoadFinished(true);
+            }
+        }, automaticallyLoadPictures, this, attachmentCallback);
+    }
+
+    private void showMessageCryptoErrorView(MessageViewInfo messageViewInfo) {
+        View view = mInflater.inflate(R.layout.message_content_crypto_error, containerView, false);
+        TextView cryptoErrorText = (TextView) view.findViewById(R.id.crypto_error_text);
+
+        OpenPgpError openPgpError = messageViewInfo.cryptoResultAnnotation.getOpenPgpError();
+        if (openPgpError != null) {
+            String errorText = openPgpError.getMessage();
+            cryptoErrorText.setText(errorText);
         }
 
         containerView.addView(view);
+        displayViewOnLoadFinished(false);
+    }
 
+    private void showMessageCryptoCancelledView() {
+        View view = mInflater.inflate(R.layout.message_content_crypto_cancelled, containerView, false);
+        view.findViewById(R.id.crypto_cancelled_retry).setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                messageCryptoPresenter.onClickRetryCryptoOperation();
+            }
+        });
+
+        containerView.addView(view);
+        displayViewOnLoadFinished(false);
     }
 
     /**
@@ -141,8 +218,7 @@ public class MessageTopView extends LinearLayout implements ShowPicturesControll
         try {
             mHeaderContainer.populate(message, account);
             if (account.isOpenPgpProviderConfigured()) {
-                // TODO show loading icon
-                // mHeaderContainer.setCryptoStatus(MessageCryptoDisplayStatus.LOADING);
+                mHeaderContainer.setCryptoStatus(MessageCryptoDisplayStatus.LOADING);
             }
             mHeaderContainer.setVisibility(View.VISIBLE);
 

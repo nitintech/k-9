@@ -90,6 +90,10 @@ public class MessageCryptoPresenter implements OnCryptoClickListener {
         }
     }
 
+    public void onClickRetryCryptoOperation() {
+        messageCryptoMvpView.restartMessageCryptoProcessing();
+    }
+
     public interface MessageCryptoMvpView {
         void restartMessageCryptoProcessing();
 

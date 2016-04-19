@@ -793,6 +793,7 @@ public class MessageViewFragment extends Fragment implements ConfirmationDialogF
     @Override
     public void restartMessageCryptoProcessing() {
         cancelAndClearMessageCryptoHelper();
+        mMessageView.setToLoadingState();
         startOrResumeProcessingInCryptoHelper(mMessage);
     }
 
