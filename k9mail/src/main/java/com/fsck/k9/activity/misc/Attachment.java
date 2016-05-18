@@ -61,7 +61,7 @@ public class Attachment implements Parcelable {
 
     public Attachment() {}
 
-    public static enum LoadingState {
+    public enum LoadingState {
         /**
          * The only thing we know about this attachment is {@link #uri}.
          */
@@ -85,6 +85,20 @@ public class Attachment implements Parcelable {
         CANCELLED
     }
 
+    @Override
+    public int hashCode() {
+        return uri.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (! (o instanceof Attachment)) {
+            return false;
+        }
+
+        Attachment that = (Attachment) o;
+        return uri.equals(that.uri);
+    }
 
     // === Parcelable ===
 
